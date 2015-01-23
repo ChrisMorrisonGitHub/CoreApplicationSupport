@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 namespace UniversalBinary.CoreApplicationSupport
 {
     /// <summary>
-    /// Provides values to indicate why a directory search has come to an end.
+    /// Provides values to indicate why a directory search being carried out by a DirectorySearcher instance has come to an end.
     /// </summary>
     public enum DirectrorySearchEndReason
     {
@@ -29,10 +29,30 @@ namespace UniversalBinary.CoreApplicationSupport
         FatalError
     }
 
+    /// <summary>
+    /// Provides values to indicate what events should be raised by the a DirectorySearcher instance during a search.
+    /// </summary>
+    [Flags]
+    public enum DirectorySearchEventMask
+    {
+        /// <summary>
+        /// Raise events for files.
+        /// </summary>
+        Files = 1,
+        /// <summary>
+        /// Raise Events for directories.
+        /// </summary>
+        Directores = 2,
+        /// <summary>
+        /// Raise events for both files and directories.
+        /// </summary>
+        Both = Directores | Files
+    }
+
     // =================================================================================================================================================
 
     /// <summary>
-    /// Provides values to indicate what action should be taken in the event that a symbolic link is encountered.
+    /// Provides values to indicate what action should be taken in the event that a symbolic link is encountered by a DirectorySearcher instance during a search.
     /// </summary>
     public enum SymbolicLinkBehaviour
     {
@@ -183,17 +203,21 @@ namespace UniversalBinary.CoreApplicationSupport
         private string m_Error;
         private Exception m_Exception;
         private object m_ClientData;
+        private string m_Directory;
 
         /// <summary>
-        /// Initializes a new instance of the SearchErrorEventArgs class whith the specified message and exception.
+        /// Initializes a new instance of the SearchErrorEventArgs class whith the specified message, exception and directory
         /// </summary>
         /// <param name="error">The text of the error event that this instance will provide data for.</param>
+        /// <param name="exception">The Exception that caused the error event that this instance will provide data for.</param>
+        /// <param name="directory">The directory that was being searched when the error event that this instance will provide data for occurred.</param>
         /// <param name="clientData">The client data object that was passed when the DirectorySearcher instance was created.</param>
-        internal SearchErrorEventArgs(string error, Exception exception, object clientData)
+        internal SearchErrorEventArgs(string error, Exception exception, string directory, object clientData)
         {
             m_Cancel = false;
             m_Error = error;
             m_Exception = exception;
+            m_Directory = directory;
             m_ClientData = clientData;
         }
 
@@ -216,6 +240,17 @@ namespace UniversalBinary.CoreApplicationSupport
             get
             {
                 return m_Exception;
+            }
+        }
+
+        /// <summary>
+        /// The directory that the DirectorySearcher instance was searching, or attempting to search when this error occurred.
+        /// </summary>
+        public string Directory
+        {
+            get
+            {
+                return m_Directory;
             }
         }
 
@@ -325,30 +360,6 @@ namespace UniversalBinary.CoreApplicationSupport
     public class DirectorySearcher
     {
         private System.Object lockThis = new System.Object(); // Used for thread synchronisation.
-        // The CharSet must match the CharSet of the corresponding PInvoke signature
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        private struct WIN32_FIND_DATA
-        {
-            public uint dwFileAttributes;
-            public System.Runtime.InteropServices.ComTypes.FILETIME ftCreationTime;
-            public System.Runtime.InteropServices.ComTypes.FILETIME ftLastAccessTime;
-            public System.Runtime.InteropServices.ComTypes.FILETIME ftLastWriteTime;
-            public uint nFileSizeHigh;
-            public uint nFileSizeLow;
-            public uint dwReserved0;
-            public uint dwReserved1;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
-            public string cFileName;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 14)]
-            public string cAlternateFileName;
-        }
-
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern IntPtr FindFirstFile(string lpFileName, out WIN32_FIND_DATA lpFindFileData);
-        [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern bool FindNextFile(IntPtr hFindFile, out WIN32_FIND_DATA lpFindFileData);
-        [DllImport("kernel32.dll")]
-        private static extern bool FindClose(IntPtr hFindFile);
 
         /// <summary>
         /// The event that is raised when a directory is found.
@@ -371,7 +382,11 @@ namespace UniversalBinary.CoreApplicationSupport
         private System.IO.SearchOption m_SearchOption;
         private SymbolicLinkBehaviour m_LinkToFileAction;
         private SymbolicLinkBehaviour m_LinkToDirectoryAction;
-        public bool m_Cancelled;
+        private bool m_Cancelled;
+        private DirectorySearchEventMask m_EventMask;
+        private long m_DirectoriesSearched;
+        private long m_FilesFound;
+        private bool m_SearchRunning;
 
         /// <summary>
         /// Creates a new instance of the DirectorySearcher class with the given path and default search option.
@@ -403,11 +418,13 @@ namespace UniversalBinary.CoreApplicationSupport
             if (path == null) throw new ArgumentNullException("path");
             if ((String.IsNullOrWhiteSpace(path) == true) || (Directory.Exists(path) == false)) throw new ArgumentException("Invalid search path", "path");
             m_SearchOption = searchOption;
-            m_SearchPath = path;
+            m_SearchPath = Path.GetFullPath(path);
             m_ClientData = clientData;
             m_LinkToDirectoryAction = SymbolicLinkBehaviour.Ignore;
             m_LinkToFileAction = SymbolicLinkBehaviour.Ignore;
             m_Cancelled = false;
+            m_EventMask = DirectorySearchEventMask.Both;
+            m_SearchRunning = false;
         }
 
         /// <summary>
@@ -472,32 +489,114 @@ namespace UniversalBinary.CoreApplicationSupport
             }
         }
 
+        /// <summary>
+        /// Gets or sets the path to be used as the starting point of the search.
+        /// </summary>
+        /// <remarks>
+        /// The value assigned to this property must be a valid path to an existing and accessible directory. If this is not the case an exception will be thrown.
+        /// Changing this property while a search is in progress will have no effect until the search is stopped and restarted.
+        /// </remarks>
+        public string SearchPath
+        {
+            get
+            {
+                return m_SearchPath;
+            }
+            set
+            {
+                if (value == null) throw new ArgumentNullException("value", "The value assigned to this property cannot be null");
+                if (String.IsNullOrWhiteSpace(value) == true) throw new ArgumentException("The value assigned to this property must be a valid path to a directory.", "value");
+                if (Directory.Exists(value) == false) throw new DirectoryNotFoundException(String.Format("The path '{0}' does not exist.", value));
+                m_SearchPath = Path.GetFullPath(value);
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets an enumeration value to indicate what events this instance should raise during a search.
+        /// </summary>
+        public DirectorySearchEventMask EventMask
+        {
+            get
+            {
+                return m_EventMask;
+            }
+            set
+            {
+                m_EventMask = value;
+            }
+        }
+
+        /// <summary>
+        /// Gets a flag to indicate if this instance is currently running a search.
+        /// </summary>
+        public bool SearchRunning
+        {
+            get
+            {
+                return m_SearchRunning;
+            }
+        }
+
+        /// <summary>
+        /// Starts a synchronous (blocking) search of the given directory.
+        /// </summary>
         public void StartSearch()
         {
+            if (m_SearchRunning == true) return;
+            m_SearchRunning = true;
+            m_DirectoriesSearched = 0;
+            m_FilesFound = 0;
             Dictionary<string, object> paramList = new Dictionary<string, object>();
             paramList.Add("ClientData", m_ClientData);
             paramList.Add("SearchOptions", m_SearchOption);
             paramList.Add("DirectorySymlinkAction", m_LinkToDirectoryAction);
             paramList.Add("FileSymlinkAction", m_LinkToFileAction);
+            paramList.Add("EventMask", m_EventMask);
+            SearchEndedEventArgs e;
+            DirectrorySearchEndReason reason = DirectrorySearchEndReason.Finished;
 
             // If this call returns false, then it was a non-starter.
             if (this.SearchDirectory(m_SearchPath, paramList) == false)
             {
-                SearchEndedEventArgs e = new SearchEndedEventArgs(DirectrorySearchEndReason.FatalError, paramList["ClientData"]);
-                this.OnSearchEndedEvent(e);
+                reason = (m_Cancelled == true) ? DirectrorySearchEndReason.Cancelled : DirectrorySearchEndReason.FatalError;
             }
+            else
+            {
+                reason = DirectrorySearchEndReason.Finished;
+            }
+
+            e = new SearchEndedEventArgs(reason, paramList["ClientData"]);
+            this.OnSearchEndedEvent(e);
+            m_SearchRunning = false;
         }
 
+        /// <summary>
+        /// Starts an asynchronous (non-blocking) search of the given directory in a new thread.
+        /// </summary>
         public void StartSearchAsync()
         {
+            if (m_SearchRunning == true) return;
+            m_SearchRunning = true;
+            m_DirectoriesSearched = 0;
+            m_FilesFound = 0;
             Thread thread = new Thread(new ParameterizedThreadStart(this.StartThread));
             thread.Start(m_SearchPath);
+        }
+
+        /// <summary>
+        /// Stops an asynchronous search.
+        /// </summary>
+        public void StopSearch()
+        {
+            m_Cancelled = true;
         }
 
         internal void StartThread(object param)
         {
             string searchPath = (string)param;
             Dictionary<string, object> paramList = new Dictionary<string, object>();
+            SearchEndedEventArgs e;
+            DirectrorySearchEndReason reason = DirectrorySearchEndReason.Finished;
 
             // Obtain a lock, pack the parameters up and start
             lock (lockThis)
@@ -506,14 +605,22 @@ namespace UniversalBinary.CoreApplicationSupport
                 paramList.Add("SearchOptions", m_SearchOption);
                 paramList.Add("DirectorySymlinkAction", m_LinkToDirectoryAction);
                 paramList.Add("FileSymlinkAction", m_LinkToFileAction);
+                paramList.Add("EventMask", m_EventMask);
             }
 
             // If this call returns false, then it was a non-starter.
             if (this.SearchDirectory(searchPath, paramList) == false)
             {
-                SearchEndedEventArgs e = new SearchEndedEventArgs(DirectrorySearchEndReason.FatalError, paramList["ClientData"]);
-                this.OnSearchEndedEvent(e);
+                reason = (m_Cancelled == true) ? DirectrorySearchEndReason.Cancelled : DirectrorySearchEndReason.FatalError;
             }
+            else
+            {
+                reason = DirectrorySearchEndReason.Finished;
+            }
+
+            e = new SearchEndedEventArgs(reason, paramList["ClientData"]);
+            this.OnSearchEndedEvent(e);
+            m_SearchRunning = false;
         }
 
         private bool SearchDirectory(string path, Dictionary<string, object> paramList)
@@ -521,16 +628,18 @@ namespace UniversalBinary.CoreApplicationSupport
             if (this.Cancelled == true) return false;
             object clientData = paramList["ClientData"];
             SearchOption searchOption = (SearchOption)paramList["SearchOptions"];
-            SymbolicLinkBehaviour dirAction = (SymbolicLinkBehaviour)paramList["DirectorySymlinkAction"];
-            IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
-            WIN32_FIND_DATA win32_fd;
-            string rPath;
-            IntPtr hFind = FindFirstFile(Path.Combine(path, "*.*"), out win32_fd);
+            SymbolicLinkBehaviour dirLinkAction = (SymbolicLinkBehaviour)paramList["DirectorySymlinkAction"];
+            SymbolicLinkBehaviour fileLinkAction = (SymbolicLinkBehaviour)paramList["FileSymlinkAction"];
+            DirectorySearchEventMask mask = (DirectorySearchEventMask)paramList["EventMask"];
+            
+            NativeMethods.WIN32_FIND_DATA win32_fd;
+            string rPath = path;
+            IntPtr hFind = NativeMethods.FindFirstFile(Path.Combine(path, "*.*"), out win32_fd);
 
-            if (hFind == INVALID_HANDLE_VALUE)
+            if (hFind == NativeMethods.INVALID_HANDLE_VALUE)
             {
                 Win32Exception we = new Win32Exception(Marshal.GetLastWin32Error());
-                SearchErrorEventArgs e = new SearchErrorEventArgs("Error: An error occurred searching '" + path + "' - " + we.Message, we, clientData);
+                SearchErrorEventArgs e = new SearchErrorEventArgs(we.Message, we, rPath, clientData);
                 this.OnSearchErrorEvent(e);
                 return false;
             }
@@ -549,7 +658,7 @@ namespace UniversalBinary.CoreApplicationSupport
                             // Check if this directory is a junction or symbolic link.
                             if (di.Attributes.HasFlag(FileAttributes.ReparsePoint) == true)
                             {
-                                switch (dirAction)
+                                switch (dirLinkAction)
                                 {
                                     case SymbolicLinkBehaviour.Ignore:
                                         continue;
@@ -560,14 +669,17 @@ namespace UniversalBinary.CoreApplicationSupport
                                 }
                             }
                             // Raise an event and check that the client has not cancelled the operation.
-                            DirectoryFoundEventArgs e = new DirectoryFoundEventArgs(di, clientData);
-                            this.OnDirectoryFoundEvent(e);
-                            if (e.Cancel == true)
+                            if (mask.HasFlag(DirectorySearchEventMask.Directores) == true)
                             {
-                                m_Cancelled = true;
-                                SearchEndedEventArgs ec = new SearchEndedEventArgs(DirectrorySearchEndReason.Cancelled, clientData);
-                                this.OnSearchEndedEvent(ec);
-                                return false;
+                                DirectoryFoundEventArgs e = new DirectoryFoundEventArgs(di, clientData);
+                                this.OnDirectoryFoundEvent(e);
+                                if (e.Cancel == true)
+                                {
+                                    m_Cancelled = true;
+                                    SearchEndedEventArgs ec = new SearchEndedEventArgs(DirectrorySearchEndReason.Cancelled, clientData);
+                                    this.OnSearchEndedEvent(ec);
+                                    return false;
+                                }
                             }
                             // Check if we are recursing.
                             if (searchOption == SearchOption.AllDirectories) this.SearchDirectory(rPath, paramList);
@@ -576,28 +688,44 @@ namespace UniversalBinary.CoreApplicationSupport
                         {
                             // The entry is some kind of file.
                             FileInfo fi = new FileInfo(rPath);
-                            // Raise an event and check that the client has not cancelled the operation.
-                            FileFoundEventArgs e = new FileFoundEventArgs(fi, clientData);
-                            this.OnFileFoundEvent(e);
-                            if (e.Cancel == true)
+                            // Check if this file is a junction or symbolic link.
+                            if (fi.Attributes.HasFlag(FileAttributes.ReparsePoint) == true)
                             {
-                                m_Cancelled = true;
-                                SearchEndedEventArgs ec = new SearchEndedEventArgs(DirectrorySearchEndReason.Cancelled, clientData);
-                                this.OnSearchEndedEvent(ec);
-                                return false;
+                                switch (fileLinkAction)
+                                {
+                                    case SymbolicLinkBehaviour.Ignore:
+                                        continue;
+                                    case SymbolicLinkBehaviour.Follow:
+                                        break;
+                                    case SymbolicLinkBehaviour.Return:
+                                        break;
+                                }
+                            }
+                            if (mask.HasFlag(DirectorySearchEventMask.Files) == true)
+                            {
+                                // Raise an event and check that the client has not cancelled the operation.
+                                FileFoundEventArgs e = new FileFoundEventArgs(fi, clientData);
+                                this.OnFileFoundEvent(e);
+                                if (e.Cancel == true)
+                                {
+                                    m_Cancelled = true;
+                                    SearchEndedEventArgs ec = new SearchEndedEventArgs(DirectrorySearchEndReason.Cancelled, clientData);
+                                    this.OnSearchEndedEvent(ec);
+                                    return false;
+                                }
                             }
                         }
                     }
                 }
-                while ((FindNextFile(hFind, out win32_fd) == true) && (this.Cancelled == false));
+                while ((NativeMethods.FindNextFile(hFind, out win32_fd) == true) && (this.Cancelled == false));
             }
             catch (Exception ex)
             {
-                SearchErrorEventArgs e = new SearchErrorEventArgs("Error: An error occurred searching '" + path + "' - " + ex.Message, ex, clientData);
+                SearchErrorEventArgs e = new SearchErrorEventArgs(ex.Message, ex, rPath, clientData);
                 this.OnSearchErrorEvent(e);
                 return false;
             }
-            FindClose(hFind);
+            NativeMethods.FindClose(hFind);
 
             return m_Cancelled;
         }

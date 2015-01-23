@@ -248,7 +248,6 @@ namespace UniversalBinary.CoreApplicationSupport
                 catch (Exception ex)
                 {
                     Console.WriteLine("Could not copy {0} to {1}. {2} : {3}", file, dfile, ex.Message, ex.StackTrace);
-                    return false;
                     continue;
                 }
             }
@@ -377,6 +376,7 @@ namespace UniversalBinary.CoreApplicationSupport
             if (File.Exists(file) == false) return false;
             file = Path.GetFullPath(file);
             string dir = Path.GetDirectoryName(file);
+            if ((file.Contains("\\.") == true) && (file.EndsWith("\\.") == false)) return true;
 
             while (String.IsNullOrWhiteSpace(dir) == false)
             {

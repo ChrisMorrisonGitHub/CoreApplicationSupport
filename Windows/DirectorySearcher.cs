@@ -442,6 +442,7 @@ namespace UniversalBinary.CoreApplicationSupport
         /// <param name="e">The data for this event.</param>
         protected void OnFileFoundEvent(FileFoundEventArgs e)
         {
+            m_FilesFound++;
             if (this.FileFound != null) this.FileFound(this, e);
         }
 
@@ -534,6 +535,28 @@ namespace UniversalBinary.CoreApplicationSupport
             get
             {
                 return m_SearchRunning;
+            }
+        }
+
+        /// <summary>
+        /// Get the number of directories successfully searched.
+        /// </summary>
+        public long DirectoriesSearched
+        {
+            get
+            {
+                return m_DirectoriesSearched;
+            }
+        }
+
+        /// <summary>
+        /// Gets the number of files found in this search.
+        /// </summary>
+        public long FilesFound
+        {
+            get
+            {
+                return m_FilesFound;
             }
         }
 
@@ -643,6 +666,10 @@ namespace UniversalBinary.CoreApplicationSupport
                 this.OnSearchErrorEvent(e);
                 return false;
             }
+            else
+            {
+                m_DirectoriesSearched++;
+            }
 
             try
             {
@@ -727,7 +754,7 @@ namespace UniversalBinary.CoreApplicationSupport
             }
             NativeMethods.FindClose(hFind);
 
-            return m_Cancelled;
+            return !m_Cancelled;
         }
     }
 }

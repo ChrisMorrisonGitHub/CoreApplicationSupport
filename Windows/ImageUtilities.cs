@@ -91,7 +91,7 @@ namespace UniversalBinary.CoreApplicationSupport
                         return false;
                     }
                     Random rnd = new Random();
-                    string newExt = rnd.Next(0, 10000).ToString("D5") + "tiff";
+                    string newExt = rnd.Next(0, 10000).ToString("D5") + ".tiff";
                     Path.ChangeExtension(newFile, newExt);
                 }
                 FileStream outStream = File.Create(newFile, 1024, FileOptions.SequentialScan);

@@ -70,6 +70,8 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="DirectoryDuplicator.cs" />
+    <Compile Include="DirectoryOperation.cs" />
     <Compile Include="DirectorySearcher.cs" />
     <Compile Include="FileUtilities.cs" />
     <Compile Include="ImageUtilities.cs" />

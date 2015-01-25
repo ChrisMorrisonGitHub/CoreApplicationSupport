@@ -12,30 +12,7 @@ using System.Threading.Tasks;
 
 namespace UniversalBinary.CoreApplicationSupport
 {
-    /// <summary>
-    /// Options for use with the DuplicateFolder method.
-    /// </summary>
-    [Flags]
-    public enum DirectoryDuplicateOptions
-    {
-        /// <summary>
-        /// Do not copy zero byte files.
-        /// </summary>
-        SkipZeroByteFiles = 1,
-        /// <summary>
-        /// Copy only the directory struture, do not copy any files.
-        /// </summary>
-        DirectoryStructureOnly = 2,
-        /// <summary>
-        /// Do not copy system files, i.e. those with the hidden or system bit set in their attributes.
-        /// </summary>
-        SkipSystemFiles = 4,
-        /// <summary>
-        /// Convert all encountered image files to TIFF files while copying them.
-        /// </summary>
-        /// <remarks>If this option is specified all other options pertaining to the copying of files will be ignored.</remarks>
-        ConvertImagesToTIFF = 8,
-    }
+
 
     /// <summary>
     /// Fetch options for the GetDirectoryEntries method.
@@ -109,13 +86,13 @@ namespace UniversalBinary.CoreApplicationSupport
         /// <param name="owner">The required owner of the folder and all contained objects. If this parameter is null or empty the current user will own the duplicate.</param>
         /// <param name="options">One of the enumeration values that specifies additional options to use while copying.</param>
         /// <returns>true if the directory was successfully duplicated, false otherwise.</returns>
-        public static bool DuplicateFolder(string sourcePath, string destinationPath, string owner, DirectoryDuplicateOptions options)
+        public static bool DuplicateFolder(string sourcePath, string destinationPath, string owner, DuplicateOptions options)
         {
             if (String.IsNullOrWhiteSpace(sourcePath) == true) return false;
             if (String.IsNullOrWhiteSpace(destinationPath) == true) return false;
             if (String.IsNullOrWhiteSpace(owner) == true) owner = Environment.UserName;
             if (Directory.Exists(sourcePath) == false) return false;
-            if ((DirectoryIsHiddenOrSystem(sourcePath) == true) && ((options & DirectoryDuplicateOptions.SkipSystemFiles) == DirectoryDuplicateOptions.SkipSystemFiles)) return false;
+            if ((DirectoryIsHiddenOrSystem(sourcePath) == true) && ((options & DuplicateOptions.SkipSystemFiles) == DuplicateOptions.SkipSystemFiles)) return false;
 
             IdentityReference objectOwner = new NTAccount(owner);
             IdentityReference admin = new NTAccount("Administrator");
@@ -135,7 +112,7 @@ namespace UniversalBinary.CoreApplicationSupport
             fileSecurity.AddAccessRule(systemRule);
             FileAttributes fa1;
             FileAttributes fa2;
-            MemoryStream tiffFile;
+            MemoryStream tiffFile = null; ;
 
             if (Directory.Exists(destinationPath) == false)
             {
@@ -148,7 +125,7 @@ namespace UniversalBinary.CoreApplicationSupport
             string ddir;
             foreach (string dir in Directory.EnumerateDirectories(sourcePath, "*.*", SearchOption.AllDirectories))
             {
-                if ((DirectoryIsHiddenOrSystem(dir) == true) && ((options & DirectoryDuplicateOptions.SkipSystemFiles) == DirectoryDuplicateOptions.SkipSystemFiles)) continue;
+                if ((DirectoryIsHiddenOrSystem(dir) == true) && ((options & DuplicateOptions.SkipSystemFiles) == DuplicateOptions.SkipSystemFiles)) continue;
                 ddir = dir.Replace(sourcePath, destinationPath);
                 try
                 {
@@ -172,11 +149,11 @@ namespace UniversalBinary.CoreApplicationSupport
                     continue;
                 }
             }
-            if ((options & DirectoryDuplicateOptions.DirectoryStructureOnly) == DirectoryDuplicateOptions.DirectoryStructureOnly) return true;
+            if ((options & DuplicateOptions.DirectoryStructureOnly) == DuplicateOptions.DirectoryStructureOnly) return true;
             string dfile;
             foreach (string file in Directory.EnumerateFiles(sourcePath, "*.*", SearchOption.AllDirectories))
             {
-                if ((FileIsHiddenOrSystem(file) == true) && ((options & DirectoryDuplicateOptions.SkipSystemFiles) == DirectoryDuplicateOptions.SkipSystemFiles)) continue;
+                if ((FileIsHiddenOrSystem(file) == true) && ((options & DuplicateOptions.SkipSystemFiles) == DuplicateOptions.SkipSystemFiles)) continue;
                 dfile = file.Replace(sourcePath, destinationPath);
                 string newExt;
                 Random rnd = new Random();
@@ -194,20 +171,20 @@ namespace UniversalBinary.CoreApplicationSupport
                         Path.ChangeExtension(dfile, newExt);
                     }
                     FileStream source = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    if ((source.Length == 0) && ((options & DirectoryDuplicateOptions.SkipZeroByteFiles) == DirectoryDuplicateOptions.SkipZeroByteFiles))
+                    if ((source.Length == 0) && ((options & DuplicateOptions.SkipZeroByteFiles) == DuplicateOptions.SkipZeroByteFiles))
                     {
                         source.Close();
                         continue;
                     }
                     FileStream dest;
-                    if ((options & DirectoryDuplicateOptions.ConvertImagesToTIFF) == DirectoryDuplicateOptions.ConvertImagesToTIFF)
-                    {
-                        tiffFile = ImageUtilities.ConvertImageStreamToTIFF(source, false);
-                    }
-                    else
-                    {
-                        tiffFile = null;
-                    }
+                    //if ((options & DuplicateOptions.ConvertImagesToTIFF) == DuplicateOptions.ConvertImagesToTIFF)
+                    //{
+                        //tiffFile = ImageUtilities.ConvertImageStreamToTIFF(source, false);
+                    //}
+                    //else
+                    //{
+                        //tiffFile = null;
+                    //}
                     if (tiffFile != null)
                     {
                         dfile = Path.ChangeExtension(dfile, "tiff");

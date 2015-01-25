@@ -30,5 +30,20 @@ namespace UniversalBinary.CoreApplicationSupport
             m_DuplicateOptions = options;
             m_CollisionAction = collisionAction;
         }
+
+        public override void Start()
+        {
+            throw new NotImplementedException();
+        }
+
+        public override void StartAsync()
+        {
+            throw new NotImplementedException();
+        }
+
+        public override void Stop()
+        {
+            throw new NotImplementedException();
+        }
     }
 }

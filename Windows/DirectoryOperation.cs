@@ -416,13 +416,7 @@ namespace UniversalBinary.CoreApplicationSupport
         protected object m_ClientData;
         protected long m_Errors;
         protected bool m_Cancelled;
-
-        protected DirectoryOperation(object clientData)
-        {
-            m_Cancelled = false;
-            m_ClientData = clientData;
-            m_Errors = 0;
-        }
+        protected bool m_OperationRunning;
 
         /// <summary>
         /// The event that is raised when an error occurs during the operation.
@@ -432,6 +426,29 @@ namespace UniversalBinary.CoreApplicationSupport
         /// The event that is raised when the operation ends.
         /// </summary>
         public event OperationEndedEventHandler OperationEnded;
+
+        protected DirectoryOperation(object clientData)
+        {
+            m_Cancelled = false;
+            m_ClientData = clientData;
+            m_Errors = 0;
+            m_OperationRunning = false;
+        }
+
+        /// <summary>
+        /// When overridden in a derived class, starts the operation synchronously.
+        /// </summary>
+        public abstract void Start();
+
+        /// <summary>
+        /// When overridden in a derived class, stops the current operation.
+        /// </summary>
+        public abstract void Stop();
+
+        /// <summary>
+        /// When overridden in a derives class, starts the operation asynchronously.
+        /// </summary>
+        public abstract void StartAsync();
 
         /// <summary>
         /// Raises the DirectoryOperation.OperationEnded event.
@@ -481,6 +498,17 @@ namespace UniversalBinary.CoreApplicationSupport
             get
             {
                 return m_Errors;
+            }
+        }
+
+        /// <summary>
+        /// Gets a flag to indicate if the operation being performed by this instance is currently in progress..
+        /// </summary>
+        public bool OperationRunning
+        {
+            get
+            {
+                return m_OperationRunning;
             }
         }
     }

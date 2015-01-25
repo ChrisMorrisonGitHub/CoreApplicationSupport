@@ -33,7 +33,15 @@ namespace UniversalBinary.CoreApplicationSupport
         private DirectorySearchEventMask m_EventMask;
         private long m_DirectoriesSearched;
         private long m_FilesFound;
-        private bool m_SearchRunning;
+        private Thread m_WorkerThread;
+
+        /// <summary>
+        /// Creates a new instance of the DirectorySearcher class with the current directory and default search option.
+        /// </summary>
+        public DirectorySearcher() : this(Environment.CurrentDirectory, SearchOption.TopDirectoryOnly, null)
+        {
+
+        }
 
         /// <summary>
         /// Creates a new instance of the DirectorySearcher class with the given path and default search option.
@@ -69,7 +77,7 @@ namespace UniversalBinary.CoreApplicationSupport
             m_LinkToDirectoryAction = SymbolicLinkBehaviour.Ignore;
             m_LinkToFileAction = SymbolicLinkBehaviour.Ignore;
             m_EventMask = DirectorySearchEventMask.Both;
-            m_SearchRunning = false;
+            m_OperationRunning = false;
             m_FilesFound = 0;
             m_DirectoriesSearched = 0;
         }
@@ -152,17 +160,6 @@ namespace UniversalBinary.CoreApplicationSupport
         }
 
         /// <summary>
-        /// Gets a flag to indicate if this instance is currently running a search.
-        /// </summary>
-        public bool SearchRunning
-        {
-            get
-            {
-                return m_SearchRunning;
-            }
-        }
-
-        /// <summary>
         /// Get the number of directories successfully searched.
         /// </summary>
         public long DirectoriesSearched
@@ -187,10 +184,10 @@ namespace UniversalBinary.CoreApplicationSupport
         /// <summary>
         /// Starts a synchronous (blocking) search of the given directory.
         /// </summary>
-        public void StartSearch()
+        public override void Start()
         {
-            if (m_SearchRunning == true) return;
-            m_SearchRunning = true;
+            if (m_OperationRunning == true) return;
+            m_OperationRunning = true;
             m_DirectoriesSearched = 0;
             m_FilesFound = 0;
             m_Cancelled = false;
@@ -216,30 +213,31 @@ namespace UniversalBinary.CoreApplicationSupport
 
             e = new OperationEndedEventArgs(reason, paramList["ClientData"]);
             this.OnOperationEnded(e);
-            m_SearchRunning = false;
+            m_OperationRunning = false;
         }
 
         /// <summary>
         /// Starts an asynchronous (non-blocking) search of the given directory in a new thread.
         /// </summary>
-        public void StartSearchAsync()
+        public override void StartAsync()
         {
-            if (m_SearchRunning == true) return;
-            m_SearchRunning = true;
+            if (m_OperationRunning == true) return;
+            m_OperationRunning = true;
             m_DirectoriesSearched = 0;
             m_FilesFound = 0;
             m_Cancelled = false;
             m_Errors = 0;
-            Thread thread = new Thread(new ParameterizedThreadStart(this.StartThread));
-            thread.Start(m_SearchPath);
+            m_WorkerThread = new Thread(new ParameterizedThreadStart(this.StartThread));
+            m_WorkerThread.Start(m_SearchPath);
         }
 
         /// <summary>
-        /// Stops an asynchronous search.
+        /// Stops the current search.
         /// </summary>
-        public void StopSearch()
+        public override void Stop()
         {
             m_Cancelled = true;
+            if ((m_WorkerThread != null) && (m_WorkerThread.ThreadState == ThreadState.Running)) m_WorkerThread.Abort();
         }
 
         internal void StartThread(object param)
@@ -271,7 +269,7 @@ namespace UniversalBinary.CoreApplicationSupport
 
             e = new OperationEndedEventArgs(reason, paramList["ClientData"]);
             this.OnOperationEnded(e);
-            m_SearchRunning = false;
+            m_OperationRunning = false;
         }
 
         private bool SearchDirectory(string path, Dictionary<string, object> paramList)
@@ -374,13 +372,23 @@ namespace UniversalBinary.CoreApplicationSupport
                 }
                 while ((NativeMethods.FindNextFile(hFind, out win32_fd) == true) && (this.Cancelled == false));
             }
+            catch (ThreadAbortException)
+            {
+                m_Cancelled = true;
+                OperationEndedEventArgs ec = new OperationEndedEventArgs(DirectroryOperationEndReason.Cancelled, clientData);
+                this.OnOperationEnded(ec);
+                return false;
+            }
             catch (Exception ex)
             {
                 OperationErrorEventArgs e = new OperationErrorEventArgs(ex.Message, ex, rPath, clientData);
                 this.OnOperationError(e);
                 return false;
             }
-            NativeMethods.FindClose(hFind);
+            finally
+            {
+                NativeMethods.FindClose(hFind);
+            }
 
             return !m_Cancelled;
         }

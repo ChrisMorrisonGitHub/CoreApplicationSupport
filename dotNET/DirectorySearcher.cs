@@ -280,97 +280,74 @@ namespace UniversalBinary.CoreApplicationSupport
             SymbolicLinkBehaviour dirLinkAction = (SymbolicLinkBehaviour)paramList["DirectorySymlinkAction"];
             SymbolicLinkBehaviour fileLinkAction = (SymbolicLinkBehaviour)paramList["FileSymlinkAction"];
             DirectorySearchEventMask mask = (DirectorySearchEventMask)paramList["EventMask"];
-            
-            NativeMethods.WIN32_FIND_DATA win32_fd;
-            string rPath = path;
-            IntPtr hFind = NativeMethods.FindFirstFile(Path.Combine(path, "*.*"), out win32_fd);
-
-            if (hFind == NativeMethods.INVALID_HANDLE_VALUE)
-            {
-                Win32Exception we = new Win32Exception(Marshal.GetLastWin32Error());
-                OperationErrorEventArgs e = new OperationErrorEventArgs(we.Message, we, rPath, clientData);
-                this.OnOperationError(e);
-                return false;
-            }
-            else
-            {
-                m_DirectoriesSearched++;
-            }
+            DirectoryInfo directoryInfo;
 
             try
             {
-                do
+                directoryInfo = new DirectoryInfo(path);
+
+                foreach(DirectoryInfo di in directoryInfo.EnumerateDirectories("*", SearchOption.TopDirectoryOnly))
                 {
-                    if ((win32_fd.cFileName == ".") || (win32_fd.cFileName == "..")) continue;
+                    // Check if this directory is a junction or symbolic link.
+                    if (di.Attributes.HasFlag(FileAttributes.ReparsePoint) == true)
                     {
-                        rPath = Path.Combine(path, win32_fd.cFileName);
-                        if (File.GetAttributes(rPath).HasFlag(FileAttributes.Directory) == true)
+                        switch (dirLinkAction)
                         {
-                            // The entry is a directory.
-                            DirectoryInfo di = new DirectoryInfo(rPath);
-                            // Check if this directory is a junction or symbolic link.
-                            if (di.Attributes.HasFlag(FileAttributes.ReparsePoint) == true)
-                            {
-                                switch (dirLinkAction)
-                                {
-                                    case SymbolicLinkBehaviour.Ignore:
-                                        continue;
-                                    case SymbolicLinkBehaviour.Follow:
-                                        break;
-                                    case SymbolicLinkBehaviour.Return:
-                                        break;
-                                }
-                            }
-                            // Raise an event and check that the client has not cancelled the operation.
-                            if (mask.HasFlag(DirectorySearchEventMask.Directores) == true)
-                            {
-                                DirectoryFoundEventArgs e = new DirectoryFoundEventArgs(di, clientData);
-                                this.OnDirectoryFound(e);
-                                if (e.Cancel == true)
-                                {
-                                    m_Cancelled = true;
-                                    OperationEndedEventArgs ec = new OperationEndedEventArgs(DirectroryOperationEndReason.Cancelled, clientData);
-                                    this.OnOperationEnded(ec);
-                                    return false;
-                                }
-                            }
-                            // Check if we are recursing.
-                            if (searchOption == SearchOption.AllDirectories) this.SearchDirectory(rPath, paramList);
+                            case SymbolicLinkBehaviour.Ignore:
+                                continue;
+                            case SymbolicLinkBehaviour.Follow:
+                                break;
+                            case SymbolicLinkBehaviour.Return:
+                                break;
                         }
-                        else
+                    }
+                    // Raise an event and check that the client has not cancelled the operation.
+                    if (mask.HasFlag(DirectorySearchEventMask.Directores) == true)
+                    {
+                        DirectoryFoundEventArgs e = new DirectoryFoundEventArgs(di, clientData);
+                        this.OnDirectoryFound(e);
+                        if (e.Cancel == true)
                         {
-                            // The entry is some kind of file.
-                            FileInfo fi = new FileInfo(rPath);
-                            // Check if this file is a junction or symbolic link.
-                            if (fi.Attributes.HasFlag(FileAttributes.ReparsePoint) == true)
-                            {
-                                switch (fileLinkAction)
-                                {
-                                    case SymbolicLinkBehaviour.Ignore:
-                                        continue;
-                                    case SymbolicLinkBehaviour.Follow:
-                                        break;
-                                    case SymbolicLinkBehaviour.Return:
-                                        break;
-                                }
-                            }
-                            if (mask.HasFlag(DirectorySearchEventMask.Files) == true)
-                            {
-                                // Raise an event and check that the client has not cancelled the operation.
-                                FileFoundEventArgs e = new FileFoundEventArgs(fi, clientData);
-                                this.OnFileFound(e);
-                                if (e.Cancel == true)
-                                {
-                                    m_Cancelled = true;
-                                    OperationEndedEventArgs ec = new OperationEndedEventArgs(DirectroryOperationEndReason.Cancelled, clientData);
-                                    this.OnOperationEnded(ec);
-                                    return false;
-                                }
-                            }
+                            m_Cancelled = true;
+                            OperationEndedEventArgs ec = new OperationEndedEventArgs(DirectroryOperationEndReason.Cancelled, clientData);
+                            this.OnOperationEnded(ec);
+                            return false;
+                        }
+                    }
+                    // Check if we are recursing.
+                    if (searchOption == SearchOption.AllDirectories) this.SearchDirectory(di.FullName, paramList);
+                }
+
+                foreach(FileInfo fi in directoryInfo.EnumerateFiles("*", SearchOption.TopDirectoryOnly))
+                {
+                    // Check if this file is a junction or symbolic link.
+                    if (fi.Attributes.HasFlag(FileAttributes.ReparsePoint) == true)
+                    {
+                        switch (fileLinkAction)
+                        {
+                            case SymbolicLinkBehaviour.Ignore:
+                                continue;
+                            case SymbolicLinkBehaviour.Follow:
+
+                                break;
+                            case SymbolicLinkBehaviour.Return:
+                                break;
+                        }
+                    }
+                    if (mask.HasFlag(DirectorySearchEventMask.Files) == true)
+                    {
+                        // Raise an event and check that the client has not cancelled the operation.
+                        FileFoundEventArgs e = new FileFoundEventArgs(fi, clientData);
+                        this.OnFileFound(e);
+                        if (e.Cancel == true)
+                        {
+                            m_Cancelled = true;
+                            OperationEndedEventArgs ec = new OperationEndedEventArgs(DirectroryOperationEndReason.Cancelled, clientData);
+                            this.OnOperationEnded(ec);
+                            return false;
                         }
                     }
                 }
-                while ((NativeMethods.FindNextFile(hFind, out win32_fd) == true) && (this.Cancelled == false));
             }
             catch (ThreadAbortException)
             {
@@ -381,14 +358,11 @@ namespace UniversalBinary.CoreApplicationSupport
             }
             catch (Exception ex)
             {
-                OperationErrorEventArgs e = new OperationErrorEventArgs(ex.Message, ex, rPath, clientData);
+                OperationErrorEventArgs e = new OperationErrorEventArgs(ex.Message, ex, path, clientData);
                 this.OnOperationError(e);
                 return false;
             }
-            finally
-            {
-                NativeMethods.FindClose(hFind);
-            }
+            m_DirectoriesSearched++;
 
             return !m_Cancelled;
         }

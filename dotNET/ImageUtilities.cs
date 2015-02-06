@@ -46,6 +46,11 @@ namespace UniversalBinary.CoreApplicationSupport
                 destStream = new MemoryStream();
                 bitmap = new Bitmap(sourceStream);
                 if ((convertICO == false) && (bitmap.RawFormat.Equals(ImageFormat.Icon) == true)) return null;
+                PropertyItem[] pitems = bitmap.PropertyItems;
+                foreach(PropertyItem pi in pitems)
+                {
+                    bitmap.RemovePropertyItem(pi.Id);
+                }
                 bitmap.Save(destStream, imageCodecInfo, encoderParameters);
             }
             catch (Exception ex)

@@ -70,6 +70,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="BinaryToTextEncoder.cs" />
     <Compile Include="DirectoryDuplicator.cs" />
     <Compile Include="DirectoryOperation.cs" />
     <Compile Include="DirectorySearcher.cs" />

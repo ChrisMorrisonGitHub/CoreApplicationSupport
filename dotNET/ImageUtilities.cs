@@ -49,6 +49,20 @@ namespace UniversalBinary.CoreApplicationSupport
                 PropertyItem[] pitems = bitmap.PropertyItems;
                 foreach(PropertyItem pi in pitems)
                 {
+                    // Correct orientation
+                    if (pi.Id == 0x0112)
+                    {
+                        int count = pi.Len / 2;
+
+                        ushort[] result = new ushort[count];
+                        for (int i = 0; i < count; i++)
+                        {
+                            result[i] =  BitConverter.ToUInt16(pi.Value, i * 2);
+                        }
+
+                        RotateFlipType rft = OrientationToFlipType(result[0]);
+                        if (rft != RotateFlipType.RotateNoneFlipNone) bitmap.RotateFlip(rft);
+                    }
                     bitmap.RemovePropertyItem(pi.Id);
                 }
                 bitmap.Save(destStream, imageCodecInfo, encoderParameters);
@@ -113,6 +127,31 @@ namespace UniversalBinary.CoreApplicationSupport
             }
 
             return true;
+        }
+
+        private static RotateFlipType OrientationToFlipType(ushort orientation)
+        {
+            switch (orientation)
+            {
+                case 1:
+                    return RotateFlipType.RotateNoneFlipNone;
+                case 2:
+                    return RotateFlipType.RotateNoneFlipX;
+                case 3:
+                    return RotateFlipType.Rotate180FlipNone;
+                case 4:
+                    return RotateFlipType.Rotate180FlipX;
+                case 5:
+                    return RotateFlipType.Rotate90FlipX;
+                case 6:
+                    return RotateFlipType.Rotate90FlipNone;
+                case 7:
+                    return RotateFlipType.Rotate270FlipX;
+                case 8:
+                    return RotateFlipType.Rotate270FlipNone;
+                default:
+                    return RotateFlipType.RotateNoneFlipNone;
+            }
         }
     }
 }

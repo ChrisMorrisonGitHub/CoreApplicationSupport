@@ -17,8 +17,9 @@ namespace UniversalBinary.CoreApplicationSupport
         /// </summary>
         /// <param name="sourceStream">The System.Stream to attempt to work on.</param>
         /// <param name="convertICO">Specifies whether to attempt to convert a Windows icon (.ico) file.</param>
+        /// <param name="compress">Specifies whether lossless compression should be applied to the image.</param>
         /// <returns>A System.Stream representing a TIFF file or null if an error occurred.</returns>
-        public static MemoryStream ConvertImageStreamToTIFF(FileStream sourceStream, bool convertICO)
+        public static MemoryStream ConvertImageStreamToTIFF(FileStream sourceStream, bool convertICO, bool compress)
         {
             Bitmap bitmap;
             MemoryStream destStream;
@@ -30,7 +31,15 @@ namespace UniversalBinary.CoreApplicationSupport
             System.Drawing.Imaging.Encoder renderMethodEncoder = System.Drawing.Imaging.Encoder.RenderMethod;
             System.Drawing.Imaging.Encoder scanMethodEncoder = System.Drawing.Imaging.Encoder.ScanMethod;
             EncoderParameters encoderParameters = new EncoderParameters(5);
-            EncoderParameter compressionParameter = new EncoderParameter(compressionEncoder, (long)EncoderValue.CompressionNone);
+            EncoderParameter compressionParameter = null;
+            if (compress == false)
+            {
+                compressionParameter = new EncoderParameter(compressionEncoder, (long)EncoderValue.CompressionNone);
+            }
+            else
+            {
+                compressionParameter = new EncoderParameter(compressionEncoder, (long)EncoderValue.CompressionLZW);
+            }
             EncoderParameter qualityParameter = new EncoderParameter(qualityEncoder, 100L);
             EncoderParameter colorDepthParameter = new EncoderParameter(colorDepthEncoder, 32L);
             EncoderParameter renderMethodParameter = new EncoderParameter(renderMethodEncoder, (long)EncoderValue.RenderProgressive);
@@ -90,7 +99,7 @@ namespace UniversalBinary.CoreApplicationSupport
             return null;
         }
 
-        public static bool ConvertFileToTIFF(string file, bool convertICO)
+        public static bool ConvertFileToTIFF(string file, bool convertICO, bool compress)
         {
             if (String.IsNullOrWhiteSpace(file) == true) return false;
             if (File.Exists(file) == false) return false;
@@ -98,7 +107,7 @@ namespace UniversalBinary.CoreApplicationSupport
             try
             {
                 FileStream fileStream = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read);
-                MemoryStream memStream = ConvertImageStreamToTIFF(fileStream, convertICO);
+                MemoryStream memStream = ConvertImageStreamToTIFF(fileStream, convertICO, compress);
                 if (memStream == null) return false;
                 string newFile = Path.ChangeExtension(file, "tiff");
                 if (File.Exists(newFile) == true)

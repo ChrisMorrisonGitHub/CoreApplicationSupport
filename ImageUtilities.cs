@@ -103,16 +103,17 @@ namespace UniversalBinary.CoreApplicationSupport
         {
             if (String.IsNullOrWhiteSpace(file) == true) return false;
             if (File.Exists(file) == false) return false;
+            string newFile = Path.ChangeExtension(file, "tiff");
 
             try
             {
                 FileStream fileStream = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read);
                 MemoryStream memStream = ConvertImageStreamToTIFF(fileStream, convertICO, compress);
                 if (memStream == null) return false;
-                string newFile = Path.ChangeExtension(file, "tiff");
+            
                 if (File.Exists(newFile) == true)
                 {
-                    if (FileUtilities.FileAndStreamAreIdentical(newFile, memStream) == true)
+                    if (FilesContainIdenticalImage(file, newFile, true) == true)
                     {
                         fileStream.Close();
                         memStream.Close();
@@ -161,6 +162,75 @@ namespace UniversalBinary.CoreApplicationSupport
                 default:
                     return RotateFlipType.RotateNoneFlipNone;
             }
+        }
+
+        public static bool FilesContainIdenticalImage(string file1, string file2, bool compareFormat = false)
+        {
+            Bitmap b1;
+            Bitmap b2;
+
+            try
+            {
+                b1 = new Bitmap(file1);
+                b2 = new Bitmap(file2);
+                if ((compareFormat == true) && (b1.RawFormat != b2.RawFormat)) return false;
+                if (BitmapsAreComparable(b1, b2) == false) return false;
+                if (b1.Width == b1.Height)
+                {
+                    // Square image.
+                    if (PixelsMatch(b1, b2) == true) return true;
+                    b2.RotateFlip(RotateFlipType.Rotate90FlipNone);
+                    if (PixelsMatch(b1, b2) == true) return true;
+                    b2.RotateFlip(RotateFlipType.Rotate90FlipNone);
+                    if (PixelsMatch(b1, b2) == true) return true;
+                    b2.RotateFlip(RotateFlipType.Rotate90FlipNone);
+                    if (PixelsMatch(b1, b2) == true) return true;
+                }
+                else
+                {
+                    if (b1.Width != b2.Width) b2.RotateFlip(RotateFlipType.Rotate90FlipNone);
+                    if (PixelsMatch(b1, b2) == true) return true;
+                    b2.RotateFlip(RotateFlipType.Rotate180FlipNone);
+                    if (PixelsMatch(b1, b2) == true) return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+
+            return false;
+        }
+
+        private static bool BitmapsAreComparable(Bitmap bmp1, Bitmap bmp2)
+        {
+            if ((bmp1 == null) || (bmp2 == null)) return false;
+
+            if (((bmp1.Width == bmp2.Width) && (bmp1.Height == bmp2.Height)) || ((bmp1.Width == bmp2.Height) && (bmp1.Height == bmp2.Width))) return true;
+
+            return false;
+        }
+
+        private static bool PixelsMatch(Bitmap bmp1, Bitmap bmp2)
+        {
+            if (bmp1.Size != bmp2.Size) return false;
+
+            int width = bmp1.Width;
+            int height = bmp1.Height;
+            Color c1;
+            Color c2;
+
+            for (int x = 0; x < width; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    c1 = bmp1.GetPixel(x, y);
+                    c2 = bmp2.GetPixel(x, y);
+                    if (c1.ToArgb() != c2.ToArgb()) return false;
+                }
+            }
+
+            return true;
         }
     }
 }
